@@ -6,7 +6,7 @@ Created on Mon Apr 18 13:27:47 2022
 @author: laasyapothuganti
 """
 
-import make_sankey_copy as ms
+#import make_sankey_copy as ms
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -17,10 +17,35 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
-import dash
-import dash_core_components as dcc
-import dash_html_components as html
-from dash.dependencies import Input, Output
+from dash import Dash, html, dcc, Input, Output
+import sankey as ms
+
+def assign_offcode_group(crime_data):
+    '''
+    Purpose:
+        for all nan values, assign the appropriate offense group based on offense code of crime
+        
+    Args:
+        
+        
+    Return:
+        dataframe with no nan values in offense code group
+    '''
+    
+    # create dict w keys as offense code groups and values as list of corresponding codes
+    off_codes = {off: list(crime_data[crime_data.offense_code_group == off].offense_code.unique()) 
+                 for off in crime_data['offense_code_group'].unique()}
+    
+    # reverse the dictionary so that keys are the codes and values are its corresponding offense code group 
+    pairs = {code: off for off in off_codes.keys() for code in off_codes[off]}
+    
+    # remove any offense code without offense code group
+    crime_data = crime_data[crime_data.offense_code.isin(pairs.keys())]
+    
+    # mend dataframe
+    crime_data['offense_code_group'] = crime_data.apply(lambda row: pairs[row.offense_code], axis=1)
+    
+    return crime_data
 
 def main():
     # read csv file for all boston crime data
@@ -53,6 +78,9 @@ def main():
     # remove incorrect location data
     crime_data = crime_data[(crime_data.lat > 42) & (crime_data.long != 0)]
     
+    # remove any data without offense group code
+    crime_data = assign_offcode_group(crime_data)
+    
     # group dataframe by year and offense
     # reset index
     crime_year_offense = crime_data.groupby(['year', 'offense_code_group']).count()
@@ -68,11 +96,13 @@ def main():
     crime_offense = crime_data.groupby(['offense_code_group']).count()
     #crime_offense = crime_offense.reset_index()
     
-    # obtain list of offenses
+    # obtain list of years,offenses,street names
+    year = crime_data['year'].unique().tolist()
     offense = crime_data['offense_code_group'].unique().tolist()
+    street = crime_data['street'].unique().tolist()
     
 
-    app = dash.Dash(__name__)
+    app = Dash(__name__)
     
     app.layout = html.Div(
         children=[
@@ -83,7 +113,7 @@ def main():
                     style = {"color": "black", "fontSize": "48px", "fontWeight": "bold", "textAlign": "center", "margin": "auto"}
             ),
             html.P(
-                children="Analyze the types of crimes and the number of crimes committed in Boston between 2015-2018 on a yearly, monthly, daily, and hourly basis",
+                children="Analyze the types of crimes and the number of crimes committed in Boston from August 2015 to December 2018 on a yearly, monthly, daily, and hourly basis and at a street level",
                 style = {"color": "black", "textAlign": "center", "margin": "4px auto", 'maxWidth': '384px'}
             ),
             html.Div(children="Year", className="menu-title"),
@@ -91,85 +121,22 @@ def main():
                 id='year-slider', 
                 value=2015, 
                 min=2015, 
-                max=2018, 
+                max=2022, 
                 step=1,
                 marks={'2015': '2015',
                        '2016': '2016',
                        '2017': '2017',
-                       '2018': '2018'},
+                       '2018': '2018',
+                       '2019': '2019',
+                       '2020': '2020',
+                       '2021': '2021',
+                       '2022': '2022'},
             ),
             html.Br(),
             html.Div(children="Offense Code Group", className="menu-title"),
             dcc.Dropdown(
                 id="offense-filter",
-                options=[
-                    {'label': 'Aggravated Assault', 'value': 'Aggravated Assault'},
-                    {'label': 'Aircraft', 'value': 'Aircraft'},
-                    {'label': 'Arson', 'value': 'Arson'},
-                    {'label': 'Assembly Or Gathering Violations', 'value': 'Assembly Or Gathering Violations'},
-                    {'label': 'Auto Theft', 'value': 'Auto Theft'},
-                    {'label': 'Auto Theft Recovery', 'value': 'Auto Theft Recovery'},
-                    {'label': 'Ballistics', 'value': 'Ballistics'},
-                    {'label': 'Bomb Hoax', 'value': 'Bomb Hoax'},
-                    {'label': 'Burglary - No Property Taken', 'value': 'Burglary - No Property Taken'},
-                    {'label': 'Commercial Burglary', 'value': 'Commercial Burglary'},
-                    {'label': 'Confidence Games', 'value': 'Confidence Games'},
-                    {'label': 'Counterfeiting', 'value': 'Counterfeiting'},
-                    {'label': 'Criminal Harassment', 'value': 'Criminal Harassment'},
-                    {'label': 'Disorderly Conduct', 'value': 'Disorderly Conduct'},
-                    {'label': 'Drug Violation', 'value': 'Drug Violation'},
-                    {'label': 'Embezzlement', 'value': 'Embezzlement'},
-                    {'label': 'Evading Fare', 'value': 'Evading Fare'},
-                    {'label': 'Explosives', 'value': 'Explosives'},
-                    {'label': 'Fire Related Reports', 'value': 'Fire Related Reports'},
-                    {'label': 'Firearm Discovery', 'value': 'Firearm Discovery'},
-                    {'label': 'Firearm Violations', 'value': 'Firearm Violations'},
-                    {'label': 'Fraud', 'value': 'Fraud'},
-                    {'label': 'Gambling', 'value': 'Gambling'},
-                    {'label': 'Harassment', 'value': 'Harassment'},
-                    {'label': 'Harbor Related Incidents', 'value': 'Harbor Related Incidents'},
-                    {'label': 'Homicide', 'value': 'Homicide'},
-                    {'label': 'Investigate Person', 'value': 'Investigate Person'},
-                    {'label': 'Investigate Property', 'value': 'Investigate Property'},
-                    {'label': 'Landlord/Tenant Disputes', 'value': 'Landlord/Tenant Disputes'},
-                    {'label': 'Larceny', 'value': 'Larceny'},
-                    {'label': 'Larceny From Motor Vehicle', 'value': 'Larceny From Motor Vehicle'},
-                    {'label': 'License Plate Related Incidents', 'value': 'License Plate Related Incidents'},
-                    {'label': 'License Violation', 'value': 'License Violation'},
-                    {'label': 'Liquor Violation', 'value': 'Liquor Violation'},
-                    {'label': 'Medical Assistance', 'value': 'Medical Assistance'},
-                    {'label': 'Missing Person Located', 'value': 'Missing Person Located'},
-                    {'label': 'Missing Person Reported', 'value': 'Missing Person Reported'},
-                    {'label': 'Motor Vehicle Accident Response', 'value': 'Motor Vehicle Accident Response'},
-                    {'label': 'Offenses Against Child / Family', 'value': 'Offenses Against Child / Family'},
-                    {'label': 'Operating Under The Influence', 'value': 'Operating Under The Influence'},
-                    {'label': 'Other', 'value': 'Other'},
-                    {'label': 'Other Burglary', 'value': 'Other Burglary'},
-                    {'label': 'Phone Call Complaints', 'value': 'Phone Call Complaints'},
-                    {'label': 'Police Service Incidents', 'value': 'Police Service Incidents'},
-                    {'label': 'Prisoner Related Incidents', 'value': 'Prisoner Related Incidents'},
-                    {'label': 'Property Found', 'value': 'Property Found'},
-                    {'label': 'Property Lost', 'value': 'Property Lost'},
-                    {'label': 'Property Related Damage', 'value': 'Property Related Damage'},
-                    {'label': 'Prostitution', 'value': 'Prostitution'},
-                    {'label': 'Recovered Stolen Property', 'value': 'Recovered Stolen Property'},
-                    {'label': 'Residential Burglary', 'value': 'Residential Burglary'},
-                    {'label': 'Restraining Order Violations', 'value': 'Restraining Order Violations'},
-                    {'label': 'Robbery', 'value': 'Robbery'},
-                    {'label': 'Search Warrants', 'value': 'Search Warrants'},
-                    {'label': 'Service', 'value': 'Service'},
-                    {'label': 'Simple Assault', 'value': 'Simple Assault'},
-                    {'label': 'Towed', 'value': 'Towed'},
-                    {'label': 'Vandalism', 'value': 'Vandalism'},
-                    {'label': 'Verbal Disputes', 'value': 'Verbal Disputes'},
-                    {'label': 'Violations', 'value': 'Violations'},
-                    {'label': 'Warrant Arrests', 'value': 'Warrant Arrests'},
-                    {'label': 'Home Invasion', 'value': 'Home Invasion'},
-                    {'label': 'Human Trafficking', 'value': 'Human Trafficking'},
-                    {'label': 'Human Trafficking - Involuntary Servitude', 'value': 'Human Trafficking - Involuntary Servitude'},
-                    {'label': 'Manslaughter', 'value': 'Manslaughter'},
-                    {'label': 'Biological Threat', 'value': 'Biological Threat'}
-                    ],
+                options=offense,
                 value="Aggravated Assault",
                 clearable=False,
                 style = dict(width='50%'),
@@ -205,11 +172,23 @@ def main():
                 ),
                 className="card",
             ),
+            html.Br(),
+            html.Div(children="Street", className="menu-title"),
+            dcc.Dropdown(
+                id="street-filter",
+                options=street,
+                value="Gibson St",
+                clearable=False,
+                style = dict(width='50%'),
+                ),
             html.Div(
                 children=dcc.Graph(
                     id="street_chart", config={"displayModeBar": False}
                 ),
                 className="card",
+            ),
+            html.Div(children="Minimum Crimes", className="menu-title"),
+            dcc.Slider(0, 50, 5, value=10, id='count-slider'
             ),
         ],
     )
@@ -223,9 +202,11 @@ def main():
         Output("street_chart", "figure"),
         Input("year-slider", "value"),
         Input("offense-filter", "value"),
+        Input("street-filter", "value"),
+        Input("count-slider", "value")
         )
     
-    def update_charts(year, offense):
+    def update_charts(year, offense, street, count):
         
         year = int(year)
         year_bool = crime_data['year'] == year
@@ -243,9 +224,14 @@ def main():
         crime_day = crime.groupby(["day_of_week"]).count().reindex(cats) 
         crime_hour = crime.groupby("hour").count()
         
-        crime_street = crime.groupby(['offense_code_group', 'street']).size().reset_index(name='count')
-        crime_street = crime_street.sort_values('count', ascending=False)
+        #crime_street = crime.groupby(['offense_code_group', 'street']).size().reset_index(name='count')
+        #crime_street = crime_street.sort_values('count', ascending=False)
         #crime_street = crime_street[crime_street["count"] >= 5]
+        
+        crime_street = crime_ybool[crime_ybool.street.str.contains(street)]
+        crime_street_offense = crime_street.groupby(['street', 'offense_code_group']).size().reset_index(name='count')
+        crime_street_offense = crime_street_offense.sort_values('count', ascending=False)
+        crime_street_offense = crime_street_offense[crime_street_offense["count"] >= count]
         
         graph_chart = px.scatter_mapbox(crime_ybool[crime_ybool["offense_code_group"]==offense], lat="lat", lon="long", hover_name="incident_number", hover_data=["year", "offense_code_group", "district", "reporting_area", "occurred_on_date", "street"],
                             color_discrete_sequence=["fuchsia"], zoom=10, height=600)
@@ -253,7 +239,7 @@ def main():
         graph_chart.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
         
         
-        street_chart = ms.make_sankey(crime_street, 'offense_code_group', 'street', 'count')
+        street_chart = ms.make_sankey(crime_street_offense, 'street', 'offense_code_group', 'count')
         
         
         bar_chart = {
