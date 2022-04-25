@@ -6,7 +6,6 @@ Created on Mon Apr 18 13:27:47 2022
 @author: laasyapothuganti
 """
 
-#import make_sankey_copy as ms
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -17,6 +16,8 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import dash 
 from dash import Dash, html, dcc, Input, Output
 import sankey as ms
 
@@ -47,8 +48,29 @@ def assign_offcode_group(crime_data):
     
     return crime_data
 
+def clean_data(df):
+    
+    # turn all column names to lowercase
+    cols = [col.lower() for col in df.columns]
+    crime_data = df.rename(dict(zip(df.columns, cols)), axis=1)
+    
+    # drop nan values from "important" columns
+    crime_data = crime_data.dropna(subset=['street', 'lat', 'long'])
+    
+    # change offense_code_group, street to title case
+    crime_data["offense_code_group"] = crime_data["offense_code_group"].str.title()
+    crime_data["street"] = crime_data["street"].str.title()
+
+    # remove incorrect location data
+    crime_data = crime_data[(crime_data.lat > 42) & (crime_data.long != 0)]
+    
+    # assign offense code group to NaN values in offense code group column
+    crime_data = assign_offcode_group(crime_data)
+    
+    return crime_data
+
 def main():
-    # read csv file for all boston crime data
+    # read in csv files for all Boston crime data
     crime_2022 = pd.read_csv('crime_2022.csv')
     crime_2021 = pd.read_csv('crime_2021.csv')
     crime_2020 = pd.read_csv('crime_2020.csv')
@@ -62,58 +84,32 @@ def main():
     crime_data = pd.concat([crime_2022, crime_2021, crime_2020, crime_2019, crime_2018, 
                             crime_2017, crime_2016, crime_2015], axis=0)
     
-    # turn all column names to lowercase
-    cols = [col.lower() for col in crime_data.columns]
-    crime_data = crime_data.rename(dict(zip(crime_data.columns, cols)), axis=1)
-    
-    # drop nan values from "important" columns
-    crime_data = crime_data.dropna(subset=['street', 'lat', 'long', 'district'])
-    
-    # change offense_code_group to title case
-    crime_data["offense_code_group"] = crime_data["offense_code_group"].str.title()
-    
-    # change street to title case
-    crime_data["street"] = crime_data["street"].str.title()
-
-    # remove incorrect location data
-    crime_data = crime_data[(crime_data.lat > 42) & (crime_data.long != 0)]
-    
-    # remove any data without offense group code
-    crime_data = assign_offcode_group(crime_data)
+    # clean DataFrame
+    crime_data = clean_data(crime_data)
     
     # group dataframe by year and offense
-    # reset index
     crime_year_offense = crime_data.groupby(['year', 'offense_code_group']).count()
-    #crime_year_offense = crime_year_offense.reset_index()
     
-    # group dataframe by year
-    # reset index
-    crime_year = crime_data.groupby(['year']).count()
-    #crime_year = crime_year.reset_index()
-    
-    # group dataframe by offense
-    # reset index
-    crime_offense = crime_data.groupby(['offense_code_group']).count()
-    #crime_offense = crime_offense.reset_index()
-    
-    # obtain list of years,offenses,street names
-    year = crime_data['year'].unique().tolist()
+    # obtain list of offenses, street names (for dropdown elements)
+    # order lists in alphabetical order
+    # add all option to lists
     offense = crime_data['offense_code_group'].unique().tolist()
+    offense = sorted(offense)
+    offense.insert(0, "All Offense Code Groups")
     street = crime_data['street'].unique().tolist()
+    street = sorted(street)
+    street.insert(0, "All Streets")
     
 
     app = Dash(__name__)
     
     app.layout = html.Div(
         children=[
-            #html.Header(
-                    #style = {"color": "black", "height": "256px", "display": "flex", "flexDirection": "column", "justifyContent": "center"}
-            #),
             html.H1(children="Boston Crime Analytics",
                     style = {"color": "black", "fontSize": "48px", "fontWeight": "bold", "textAlign": "center", "margin": "auto"}
             ),
             html.P(
-                children="Analyze the types of crimes and the number of crimes committed in Boston from August 2015 to December 2018 on a yearly, monthly, daily, and hourly basis and at a street level",
+                children="Analyze the types of crimes and the number of crimes committed in Boston from August 2015 to April 2022 on a yearly, monthly, daily, and hourly basis and at a street level",
                 style = {"color": "black", "textAlign": "center", "margin": "4px auto", 'maxWidth': '384px'}
             ),
             html.Div(children="Year", className="menu-title"),
@@ -137,7 +133,8 @@ def main():
             dcc.Dropdown(
                 id="offense-filter",
                 options=offense,
-                value="Aggravated Assault",
+                value="All Offense Code Groups",
+                multi = True,
                 clearable=False,
                 style = dict(width='50%'),
                 ),
@@ -156,19 +153,7 @@ def main():
             ),
             html.Div(
                 children=dcc.Graph(
-                    id="line-chart1", config={"displayModeBar": False}
-                ),
-                className="card",
-            ),
-            html.Div(
-                children=dcc.Graph(
-                    id="line-chart2", config={"displayModeBar": False}
-                ),
-                className="card",
-            ),
-            html.Div(
-                children=dcc.Graph(
-                    id="line-chart3", config={"displayModeBar": False}
+                    id="line-chart", config={"displayModeBar": False}
                 ),
                 className="card",
             ),
@@ -177,7 +162,17 @@ def main():
             dcc.Dropdown(
                 id="street-filter",
                 options=street,
-                value="Gibson St",
+                value="All Streets",
+                multi = True,
+                clearable=False,
+                style = dict(width='50%'),
+                ),
+            html.Div(children="Crime", className="menu-title"),
+            dcc.Dropdown(
+                id="crime-filter",
+                options=offense,
+                value="All Offense Code Groups",
+                multi = True,
                 clearable=False,
                 style = dict(width='50%'),
                 ),
@@ -188,7 +183,7 @@ def main():
                 className="card",
             ),
             html.Div(children="Minimum Crimes", className="menu-title"),
-            dcc.Slider(0, 50, 5, value=10, id='count-slider'
+            dcc.Slider(0, 100, 5, value=15, id='count-slider'
             ),
         ],
     )
@@ -196,121 +191,166 @@ def main():
     @app.callback(
         Output("graph-chart", "figure"),
         Output("bar-chart", "figure"),
-        Output("line-chart1", "figure"),
-        Output("line-chart2", "figure"),
-        Output("line-chart3", "figure"),
+        Output("line-chart", "figure"),
         Output("street_chart", "figure"),
         Input("year-slider", "value"),
         Input("offense-filter", "value"),
         Input("street-filter", "value"),
+        Input("crime-filter", "value"),
         Input("count-slider", "value")
         )
     
-    def update_charts(year, offense, street, count):
+    def update_charts(year, offense, street, crime, count):
         
+        # Initial Data Clean/Data Prep
+        # convert year to integer
+        # filter DataFrame to year selected
         year = int(year)
         year_bool = crime_data['year'] == year
         crime_ybool = crime_data.loc[year_bool,:]
         
+        # convert offense code groups to list for all filter in map plot
+        offenses = crime_ybool['offense_code_group'].unique().tolist()
+       
+        # filter grouped year/offense DataFrame by year selected
         crime_obool = crime_year_offense.loc[year]
         
-        #crime_street = crime_ybool.groupby(['offense_code_group', 'street']).size().reset_index(name='count')
-        #crime_street = crime_street.sort_values('count', ascending=False)
-        #crime_street = crime_street[crime_street["count"] >= 50]
         
-        crime = crime_ybool[crime_ybool.offense_code_group.str.contains(offense)]
+        
+        # Street to Crime Sankey Diagram
+        # return non-updated dashboard when nothing is selected in filter
+        if len(street) == 0:
+            return dash.no_update
+        
+        elif isinstance(street, str):
+            # keep all streets in DataFrame if all filter is selected
+            if street == "All Streets":
+                crime_sankey = crime_ybool
+            # keep only relevant street in DataFrame if single street is selected
+            else:
+                crime_sankey = crime_ybool[crime_ybool["street"] == street]
+        
+        elif isinstance(street, list):
+            # keep all streets in DataFrame if all filter is selected
+            if "All Streets" in street:
+                crime_sankey = crime_ybool
+            # keep only relevant streets in DataFrame if multiple streets are selected
+            else:
+                crime_sankey = crime_ybool[crime_ybool["street"].isin(street)]
+        
+        # return non-updated dashboard when nothing is selected in filter
+        if len(crime) == 0:
+            return dash.no_update
+        
+        elif isinstance(crime, str):
+            # keep all offense code groups in DataFrame if all filter is selected
+            if crime == "All Offense Code Groups":
+                crime_sankey = crime_sankey
+            # keep only relevant offense code group in DataFrame if single offense code group is selected
+            else:
+                crime_sankey = crime_sankey[crime_sankey["offense_code_group"] == crime]
+        
+        elif isinstance(crime, list):
+            # keep all offense code groups in DataFrame if all filter is selected
+            if "All Offense Code Groups" in crime:
+                crime_sankey = crime_sankey
+             # keep only relevant offense code groups in DataFrame if multiple offense code groups are selected
+            else:
+                crime_sankey = crime_sankey[crime_sankey["offense_code_group"].isin(crime)]
+
+        
+        # group DataFrame by street and offense code group
+        # sort values in descending order
+        # filter DataFrame by count
+        # create Sankey diagram
+        crime_sankey = crime_sankey.groupby(['street', 'offense_code_group']).size().reset_index(name='count')
+        crime_sankey = crime_sankey.sort_values('count', ascending=False)
+        crime_sankey = crime_sankey[crime_sankey["count"] >= count]
+        street_chart = ms.make_sankey(crime_sankey, 'street', 'offense_code_group', 'count')
+        
+        
+        
+        # Map Plot/Bar Chart/Line Chart Subplots
+        # return non-updated dashboard when nothing is selected in filter
+        if len(offense) == 0:
+            return dash.no_update
+        
+        elif isinstance(offense, str):
+            # plot all offenses when all filter is selected
+            # keep all offense code groups in DataFrame when all filter is selected
+            if offense == "All Offense Code Groups":
+                graph_chart = px.scatter_mapbox(crime_ybool[crime_ybool["offense_code_group"].isin(offenses)], lat="lat", lon="long", hover_name="incident_number", hover_data=["location", "year", "offense_code_group", "offense_description", "district", "reporting_area", "street", "occurred_on_date"],
+                        color_discrete_sequence=["fuchsia"], zoom=10, height=600)
+                crime = crime_ybool
+            
+            # plot selected single offense
+            # keep selected single offense code group in DataFrame
+            else:
+                graph_chart = px.scatter_mapbox(crime_ybool[crime_ybool["offense_code_group"]==offense], lat="lat", lon="long", hover_name="incident_number", hover_data=["location", "year", "offense_code_group", "offense_description", "district", "reporting_area", "street", "occurred_on_date"],
+                                    color_discrete_sequence=["fuchsia"], zoom=10, height=600)
+                crime = crime_ybool[crime_ybool["offense_code_group"] == offense]
+       
+        elif isinstance(offense, list):
+            # plot all offenses when all filter is selected
+            # keep all offense code groups in DataFrame when all filter is selected
+            if "All Offense Code Groups" in offense:
+                graph_chart = px.scatter_mapbox(crime_ybool[crime_ybool["offense_code_group"].isin(offenses)], lat="lat", lon="long", hover_name="incident_number", hover_data=["location", "year", "offense_code_group", "offense_description", "district", "reporting_area", "street", "occurred_on_date"],
+                        color_discrete_sequence=["fuchsia"], zoom=10, height=600)
+                crime = crime_ybool
+            
+            # plot selected multiple offenses
+            # keep selected multiple offense code groups in DataFrame
+            else:
+                graph_chart = px.scatter_mapbox(crime_ybool[crime_ybool["offense_code_group"].isin(offense)], lat="lat", lon="long", hover_name="incident_number", hover_data=["location", "year", "offense_code_group", "offense_description", "district", "reporting_area", "street", "occurred_on_date"],
+                        color_discrete_sequence=["fuchsia"], zoom=10, height=600)
+                crime = crime_ybool[crime_ybool["offense_code_group"].isin(offense)]
+        
+        # update map plot layout style and margins
+        graph_chart.update_layout(mapbox_style="open-street-map")
+        graph_chart.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+        
+        # create grouped DataFrames by month, hour, and day
         crime_month = crime.groupby("month").count()
         cats = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
         crime_day = crime.groupby(["day_of_week"]).count().reindex(cats) 
         crime_hour = crime.groupby("hour").count()
         
-        #crime_street = crime.groupby(['offense_code_group', 'street']).size().reset_index(name='count')
-        #crime_street = crime_street.sort_values('count', ascending=False)
-        #crime_street = crime_street[crime_street["count"] >= 5]
+        # plot bar chart of offense code groups and number of incidents for selected year
+        # add title, x-axis label, y-axis label
+        bar_chart = px.bar(crime_obool, x=crime_obool.index, y=crime_obool["incident_number"])
+        bar_chart.update_layout(height = 600, title_text="Yearly Number of Incidents by Offense Code Group")
+        bar_chart.update_xaxes(title_text="Offense Code Group")
+        bar_chart.update_yaxes(title_text='Number of Incidents')
         
-        crime_street = crime_ybool[crime_ybool.street.str.contains(street)]
-        crime_street_offense = crime_street.groupby(['street', 'offense_code_group']).size().reset_index(name='count')
-        crime_street_offense = crime_street_offense.sort_values('count', ascending=False)
-        crime_street_offense = crime_street_offense[crime_street_offense["count"] >= count]
+        # produce 3 subplots for month, day, and hour DataFrame data
+        # add subtitles
+        line_chart = make_subplots(rows=1, cols=3, subplot_titles=('Number of Incidents by Month',  'Number of Incidents by Day','Number of Incidents by Hour'))
         
-        graph_chart = px.scatter_mapbox(crime_ybool[crime_ybool["offense_code_group"]==offense], lat="lat", lon="long", hover_name="incident_number", hover_data=["year", "offense_code_group", "district", "reporting_area", "occurred_on_date", "street"],
-                            color_discrete_sequence=["fuchsia"], zoom=10, height=600)
-        graph_chart.update_layout(mapbox_style="open-street-map")
-        graph_chart.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+        # plot month with number of incidents 
+        line_chart.add_trace(
+            go.Scatter(x=crime_month.index, y=crime_month['incident_number']),
+            row=1, col=1
+        )
+        # plot day wit number of incidents
+        line_chart.add_trace(
+            go.Scatter(x=crime_day.index, y=crime_day['incident_number']),
+            row=1, col=2
+        )
+        # plot hour with number of incidents
+        line_chart.add_trace(
+            go.Scatter(x=crime_hour.index, y=crime_hour['incident_number']),
+            row=1, col=3
+        )
+        
+        # add title, x-axis labels, y-axis label
+        line_chart.update_layout(title_text="Number of Incidents for Selected Offense Code Group(s) by Month, Day, and Hour", showlegend=False)
+        line_chart.update_yaxes(title_text='Number of Incidents', row=1, col=1)
+        line_chart.update_xaxes(title_text='Month', row=1, col=1)
+        line_chart.update_xaxes(title_text='Day', row=1, col=2)
+        line_chart.update_xaxes(title_text='Hour', row=1, col=3)
         
         
-        street_chart = ms.make_sankey(crime_street_offense, 'street', 'offense_code_group', 'count')
-        
-        
-        bar_chart = {
-            "data": [
-                {
-                    "x": crime_obool.index,
-                    "y": crime_obool["incident_number"],
-                    "type": "bar",
-                },
-            ],
-            "layout": {
-                "title": {
-                    "text": "Yearly Number of Incidents by Offense Code Group",
-                    "x": 0.05,
-                    "xanchor": "left"
-                },
-            },
-        }
-        
-        line_chart1 = {
-            "data": [
-                {
-                    "x": crime_month.index,
-                    "y": crime_month["incident_number"],
-                    "type": "lines",
-                },
-            ],
-            "layout": {
-                "title": {
-                    "text": "Monthly Number of Incidents for Given Offense Code Group",
-                    "x": 0.05,
-                    "xanchor": "left"
-                },
-            },
-        }
-    
-        line_chart2 = {
-            "data": [
-                {
-                    "x": crime_day.index,
-                    "y": crime_day["incident_number"],
-                    "type": "lines",
-                },
-            ],
-            "layout": {
-                "title": {
-                    "text": "Daily Number of Incidents for Given Offense Code Group",
-                    "x": 0.05,
-                    "xanchor": "left"
-                },
-            },
-        }
-        
-        line_chart3 = {
-            "data": [
-                {
-                    "x": crime_hour.index,
-                    "y": crime_hour["incident_number"],
-                    "type": "lines",
-                },
-            ],
-            "layout": {
-                "title": {
-                    "text": "Hourly Number of Incidents for Given Offense Code Group",
-                    "x": 0.05,
-                    "xanchor": "left"
-                },
-            },
-        }
-        
-        return graph_chart, bar_chart, line_chart1, line_chart2, line_chart3, street_chart
+        return graph_chart, bar_chart, line_chart, street_chart
     
     app.run_server(debug=True)
     
